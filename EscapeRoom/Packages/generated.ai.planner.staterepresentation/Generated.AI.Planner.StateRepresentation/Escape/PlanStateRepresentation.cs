@@ -1553,7 +1553,7 @@ namespace Generated.AI.Planner.StateRepresentation.Escape
 
         [NativeDisableContainerSafetyRestriction,ReadOnly] ObjectCorrespondence m_ObjectCorrespondence;
 
-        public StateDataContext(JobComponentSystem system, EntityArchetype stateArchetype)
+        public StateDataContext(SystemBase system, EntityArchetype stateArchetype)
         {
             EntityCommandBuffer = default;
             TraitBasedObjects = system.GetBufferFromEntity<TraitBasedObject>(true);
@@ -1639,7 +1639,7 @@ namespace Generated.AI.Planner.StateRepresentation.Escape
     }
 
     [DisableAutoCreation, AlwaysUpdateSystem]
-    public class StateManager : JobComponentSystem, ITraitBasedStateManager<TraitBasedObject, StateEntityKey, StateData, StateDataContext>
+    public class StateManager : SystemBase, ITraitBasedStateManager<TraitBasedObject, StateEntityKey, StateData, StateDataContext>
     {
         public new EntityManager EntityManager
         {
@@ -1682,6 +1682,7 @@ namespace Generated.AI.Planner.StateRepresentation.Escape
         List<EntityCommandBuffer> m_EntityCommandBuffers;
         EntityArchetype m_StateArchetype;
         bool m_EntityTransactionActive = false;
+        int m_LastClearedFrame = 0;
 
         protected override void OnCreate()
         {
@@ -1711,6 +1712,15 @@ namespace Generated.AI.Planner.StateRepresentation.Escape
 
         public EntityCommandBuffer GetEntityCommandBuffer()
         {
+            //todo determine a dedicated point to dispose of aggregated ECBs
+            var jobDependencyHandle = ExclusiveEntityTransaction.EntityManager.ExclusiveEntityTransactionDependency;
+            if (jobDependencyHandle.IsCompleted && UnityEngine.Time.frameCount != m_LastClearedFrame)
+            {
+                jobDependencyHandle.Complete();
+                ClearECBs();
+                m_LastClearedFrame = UnityEngine.Time.frameCount;
+            }
+
             var ecb = new EntityCommandBuffer(Allocator.Persistent);
             m_EntityCommandBuffers.Add(ecb);
             return ecb;
@@ -1753,7 +1763,7 @@ namespace Generated.AI.Planner.StateRepresentation.Escape
             return new StateEntityKey { Entity = copyStateEntity, HashCode = stateData.GetHashCode()};
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             var jobDependencyHandle = ExclusiveEntityTransaction.EntityManager.ExclusiveEntityTransactionDependency;
             if (jobDependencyHandle.IsCompleted)
@@ -1761,8 +1771,6 @@ namespace Generated.AI.Planner.StateRepresentation.Escape
                 jobDependencyHandle.Complete();
                 ClearECBs();
             }
-
-            return inputDeps;
         }
 
         void ClearECBs()
